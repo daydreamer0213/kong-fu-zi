@@ -25,6 +25,7 @@ export default function Chat() {
   const [streamingToken, setStreamingToken] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
   const [errorTip, setErrorTip] = useState("");
+  const [loadingConvs, setLoadingConvs] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<(() => void) | null>(null);
 
@@ -37,9 +38,11 @@ export default function Chat() {
   };
 
   const loadConversations = async () => {
+    setLoadingConvs(true);
     try {
       setConversations(await getConversations());
     } catch { setErrorTip("加载对话列表失败"); }
+    finally { setLoadingConvs(false); }
   };
 
   const loadConversation = async (id: number) => {
@@ -61,6 +64,7 @@ export default function Chat() {
   };
 
   const handleDelete = async (id: number) => {
+    if (!window.confirm("确定删除此对话？")) return;
     try {
       await deleteConversation(id);
       if (currentConvId === id) handleNewChat();
@@ -192,7 +196,10 @@ export default function Chat() {
                 </Button>
               </div>
             ))}
-            {conversations.length === 0 && (
+            {loadingConvs && (
+              <p className="text-xs text-stone-400 text-center py-4">加载中...</p>
+            )}
+            {!loadingConvs && conversations.length === 0 && (
               <p className="text-xs text-stone-400 text-center py-4">暂无对话</p>
             )}
           </div>

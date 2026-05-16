@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.models.database import User
+from app.models.database import SessionLocal, User
 from app.services.auth import get_current_user, get_db
 from app.services.chat import (
     generate_smart_reply,
@@ -17,6 +17,7 @@ from app.services.conversation import (
     add_messages,
     create_conversation,
     get_chat_history,
+    get_conversation,
     get_conversations,
     delete_conversation,
 )
@@ -66,7 +67,6 @@ def chat(
     """
     # 1. 获取或创建对话
     if request.conversation_id:
-        from app.services.conversation import get_conversation
         conv = get_conversation(db, request.conversation_id, user.id)
     else:
         conv = create_conversation(db, user.id, request.message)
@@ -96,7 +96,6 @@ async def chat_stream(
 ):
     """主对话入口（流式）——SSE 逐 token 推送。"""
     if request.conversation_id:
-        from app.services.conversation import get_conversation
         conv = get_conversation(db, request.conversation_id, user.id)
     else:
         conv = create_conversation(db, user.id, request.message)
@@ -196,8 +195,6 @@ async def _stream_with_save(conv_id, user_msg, stream_generator):
     自己管理 DB session 生命周期——不用 Depends 注入的，因为路由函数返回
     StreamingResponse 后 FastAPI 会立刻关闭注入的 session，但生成器还在跑。
     """
-    from app.models.database import SessionLocal
-
     full_reply = ""
     sources = None
 
@@ -206,14 +203,14 @@ async def _stream_with_save(conv_id, user_msg, stream_generator):
         if event.startswith("data: [SOURCES]"):
             try:
                 sources = json.loads(event[len("data: [SOURCES]"):])
-            except Exception:
+            except json.JSONDecodeError:
                 pass
         elif event.startswith("data: ") and not event.startswith("data: [DONE]"):
             payload = event[6:]
             if payload.startswith('{"token":'):
                 try:
                     full_reply += json.loads(payload)["token"]
-                except Exception:
+                except json.JSONDecodeError:
                     pass
 
     # 流结束后，用自己的 session 保存消息

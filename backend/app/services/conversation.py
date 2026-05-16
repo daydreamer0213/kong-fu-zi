@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -19,11 +20,12 @@ def create_conversation(db: Session, user_id: int, first_message: str) -> Conver
 
 
 def get_conversations(db: Session, user_id: int) -> list[Conversation]:
-    """获取用户的所有对话列表（按更新时间倒序）。"""
+    """获取用户对话列表（按更新时间倒序，最多 100 条）。"""
     return (
         db.query(Conversation)
         .filter(Conversation.user_id == user_id)
         .order_by(Conversation.updated_at.desc())
+        .limit(100)
         .all()
     )
 
@@ -67,7 +69,6 @@ def add_messages(
     # 更新对话的 updated_at
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:
-        from datetime import datetime, timezone
         conv.updated_at = datetime.now(timezone.utc)
     db.commit()
 

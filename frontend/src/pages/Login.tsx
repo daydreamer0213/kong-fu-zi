@@ -58,6 +58,7 @@ export default function Login() {
             onChange={(e) => setUsername(e.target.value)}
             onKeyDown={handleEnter}
             disabled={isLoading}
+            autoFocus
           />
           <div className="relative">
             <Input

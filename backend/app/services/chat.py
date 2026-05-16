@@ -179,7 +179,10 @@ async def generate_smart_reply_stream_with_history(
 def _format_context(results: list[dict]) -> str:
     lines = []
     for i, r in enumerate(results):
-        lines.append(f"{i+1}. 《{r['chapter']}》(第{r['verse_index']+1}章): {r['text']}")
+        chapter = r.get("chapter", "未知")
+        verse = r.get("verse_index", 0) + 1
+        text = r.get("text", "")
+        lines.append(f"{i+1}. 《{chapter}》(第{verse}章): {text}")
     return "\n".join(lines)
 
 
