@@ -1,20 +1,20 @@
 import os
+import threading
 
 _model = None
+_lock = threading.Lock()
 
 MODEL_NAME = "BAAI/bge-large-zh-v1.5"
 
 
 def _get_model():
-    """懒加载 BGE 模型——首次调用时从 ModelScope 下载到 E 盘，之后复用。
-
-    核心流程：
-    1. 先检查本地缓存 E:/ai-models/BAAI/bge-large-zh-v1.5 是否存在
-    2. 如果有，直接加载本地模型
-    3. 如果没有，通过 ModelScope（modelscope.cn，国内直达）下载
-    """
+    """懒加载 BGE 模型——首次调用时从 ModelScope 下载到 E 盘，之后复用。"""
     global _model
-    if _model is None:
+    if _model is not None:
+        return _model
+    with _lock:
+        if _model is not None:
+            return _model
         from app.config import settings
 
         model_dir = _find_or_download_model(settings.model_cache_dir)

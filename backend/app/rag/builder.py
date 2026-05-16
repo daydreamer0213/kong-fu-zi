@@ -26,8 +26,8 @@ def build_knowledge_base(json_path: str):
     # 删除旧 Collection（如果存在），新建一个
     try:
         client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
+    except ValueError:
+        pass  # Collection 不存在，正常情况
     collection = client.create_collection(
         name=COLLECTION_NAME,
         metadata={"description": "论语全文向量库，按章分块"}

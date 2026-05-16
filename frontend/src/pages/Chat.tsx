@@ -266,7 +266,7 @@ export default function Chat() {
               className="flex-1"
               disabled={isStreaming}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   handleSend();
                 }

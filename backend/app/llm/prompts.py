@@ -58,7 +58,7 @@ def get_rag_prompt(context: str, question: str) -> str:
 
     不含 System Prompt——System Prompt 作为独立消息单独传入，保持消息结构统一。
     """
-    # 用 replace 不用 format()——用户输入可能含 { } 花括号
-    prompt = RAG_PROMPT_TEMPLATE.replace("{context}", context)
-    prompt = prompt.replace("{question}", question)
+    # 先换 question 再换 context——避免 context 内容含 {question} 导致二次替换
+    prompt = RAG_PROMPT_TEMPLATE.replace("{question}", question)
+    prompt = prompt.replace("{context}", context)
     return prompt

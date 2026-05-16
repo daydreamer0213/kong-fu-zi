@@ -62,7 +62,10 @@ export async function login(username: string, password: string): Promise<string>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
-  if (!res.ok) throw new Error("登录失败");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "登录失败" }));
+    throw new Error(err.detail || "登录失败");
+  }
   const data = await res.json();
   return data.access_token;
 }
@@ -100,9 +103,12 @@ export async function sendMessage(
   const res = await fetch(`${BASE_URL}/api/chat`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message, conversation_id: conversationId || undefined }),
+    body: JSON.stringify({ message, conversation_id: conversationId ?? undefined }),
   });
-  if (!res.ok) throw new Error("发送失败");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "发送失败" }));
+    throw new Error(err.detail || "发送失败");
+  }
   return res.json();
 }
 

@@ -61,7 +61,7 @@ def chat(
         if content is None:
             return ""  # 模型拒绝或空回复
         return content
-    except (APIError, APITimeoutError, AuthenticationError, RateLimitError) as e:
+    except (APIError, APITimeoutError, AuthenticationError, RateLimitError, IndexError) as e:
         raise _handle_api_error(e) from e
 
 
@@ -83,5 +83,5 @@ async def chat_stream(
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
-    except (APIError, APITimeoutError, AuthenticationError, RateLimitError) as e:
+    except (APIError, APITimeoutError, AuthenticationError, RateLimitError, IndexError) as e:
         raise _handle_api_error(e) from e
