@@ -19,13 +19,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+
+      - name: Debug
+        run: |
+          python --version
+          pip --version
 
       - name: Install dependencies
-        run: pip install -r requirements-ci.txt
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-ci.txt 2>&1
 
       - name: Run tests
-        run: python -m pytest tests/ -v --ignore=tests/test_rag.py
+        run: python -m pytest tests/ -v --ignore=tests/test_rag.py --tb=short 2>&1
 
   frontend:
     runs-on: ubuntu-latest
@@ -39,11 +45,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
-        run: npm install
+      - name: Debug
+        run: node --version && npm --version
+
+      - name: Install
+        run: npm install --legacy-peer-deps 2>&1
 
       - name: Build
-        run: npm run build
+        run: npm run build 2>&1
