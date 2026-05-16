@@ -31,6 +31,8 @@ jobs:
           pip install -r requirements-ci.txt 2>&1
 
       - name: Run tests
+        env:
+          DEEPSEEK_API_KEY: "sk-test-ci-placeholder"
         run: python -m pytest tests/ -v --ignore=tests/test_rag.py --tb=short 2>&1
 
   frontend:
