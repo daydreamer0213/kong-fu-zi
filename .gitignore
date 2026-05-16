@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+
+# 环境 & 密钥
+.env
+*.db
+
+# 数据
+data/chroma/
+data/*.db
+
+# 模型缓存
+ai-models/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Claude Code
+.claude/
+
+# Test artifacts
+backend/data/test_req.json
+backend/data/test_resp.json

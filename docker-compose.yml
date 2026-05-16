@@ -1,0 +1,26 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - kong_data:/app/data
+      - kong_models:/app/models_cache
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - MODEL_CACHE_DIR=/app/models_cache
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - DATABASE_URL=sqlite:////app/data/kong.db
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  kong_data:
+  kong_models:
