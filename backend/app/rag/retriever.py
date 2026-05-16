@@ -1,13 +1,7 @@
-from app.rag.builder import get_collection
-from app.rag.embedder import embed
-
-
 def retrieve(query: str, top_k: int = 5) -> list[dict]:
-    """根据用户查询从论语知识库中检索最相关的章句。
-
-    Args:
-        query: 用户查询文本
-        top_k: 返回最相关的前 K 条
+    """根据用户查询从论语知识库中检索最相关的章句。"""
+    from app.rag.builder import get_collection
+    from app.rag.embedder import embed
 
     Returns:
         [{"text": "原文...", "chapter": "篇名", "verse_index": 序号, "score": 相似度分数}, ...]
