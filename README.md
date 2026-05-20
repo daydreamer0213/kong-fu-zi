@@ -1,37 +1,44 @@
 # 孔夫子 AI 聊天助手
 
-以孔子（Confucius）风格回复的智能聊天助手。接入了《论语》全文知识库（RAG），闲聊时以儒家语气回应，求教时引用论语原文作答。
+以孔子风格回复的 AI 对话助手。结合《论语》全文（20 篇 512 章）RAG 知识库，Agent 自主决策检索时机，回答引经据典、有源可循。
+
+## 架构
+
+```
+用户 → FastAPI → Agent 循环 (LLM 自主决策)
+                    ├── 闲聊 → 直接回复
+                    └── 求教 → search_analects → 检索结果注入 → 回复
+```
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
-| 大模型 | DeepSeek API (OpenAI SDK 兼容) |
-| Embedding | BGE-large-zh 本地运行 |
-| 向量库 | ChromaDB |
+| 大模型 | DeepSeek API (OpenAI SDK + Function Calling) |
+| Embedding | BGE-large-zh (本地部署, 1024 维) |
+| 向量库 | ChromaDB (HNSW 索引) |
 | 后端 | FastAPI + SSE 流式 |
-| 前端 | React 18 + TypeScript + shadcn/ui + Tailwind CSS |
-| 数据库 | SQLite (SQLAlchemy) |
-| 用户系统 | JWT 轻量认证 |
-| 部署 | Docker Compose |
+| 数据库 | SQLite (SQLAlchemy ORM) |
+| 鉴权 | JWT + bcrypt |
+| 测试 | pytest (55+ 单元/Mock/E2E) |
+| 部署 | Docker Compose + Nginx + GitHub Actions CI |
 
 ## 快速开始
 
 ### 环境要求
 
-- Python 3.13+
+- Python 3.12+
 - Node.js 22+
-- Docker（可选）
 
-### 方式一：本地开发
+### 本地开发
 
 ```bash
 # 后端
 cd backend
 python -m venv .venv
-source .venv/Scripts/activate   # Windows
+source .venv/Scripts/activate   # Windows, 或 . .venv/bin/activate (Linux/Mac)
 pip install -r requirements.txt
-cp .env.example .env            # 编辑填入 DEEPSEEK_API_KEY
+# 编辑 .env 填入 DEEPSEEK_API_KEY
 python -m uvicorn app.main:app --reload
 
 # 前端
@@ -42,10 +49,9 @@ npm run dev
 
 浏览器打开 http://localhost:5173
 
-### 方式二：Docker 部署
+### Docker
 
 ```bash
-# 根目录下创建 .env 填入 API Key
 echo "DEEPSEEK_API_KEY=sk-xxxx" > .env
 docker compose up -d
 ```
@@ -58,35 +64,65 @@ docker compose up -d
 kong/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # FastAPI 入口
-│   │   ├── config.py        # 配置管理
-│   │   ├── routers/         # API 路由
-│   │   ├── services/        # 业务逻辑
-│   │   ├── models/          # 数据库 ORM
-│   │   ├── rag/             # RAG 引擎（自研）
-│   │   └── llm/             # LLM 客户端
+│   │   ├── main.py              # FastAPI 入口
+│   │   ├── config.py            # 配置管理
+│   │   ├── routers/             # API 路由
+│   │   │   ├── auth.py          # 认证 (注册/登录/JWT)
+│   │   │   └── chat.py          # 对话 (Agent + 流式)
+│   │   ├── services/
+│   │   │   ├── agent.py         # Agent 循环 (ReAct)
+│   │   │   ├── tools.py         # 工具注册表
+│   │   │   ├── chat.py          # 基础对话函数
+│   │   │   ├── auth.py          # 认证逻辑
+│   │   │   └── conversation.py  # 对话持久化
+│   │   ├── rag/
+│   │   │   ├── chunker.py       # 文本分块 (按论语篇章)
+│   │   │   ├── embedder.py      # BGE 向量化
+│   │   │   ├── retriever.py     # ChromaDB 检索
+│   │   │   └── builder.py       # 知识库构建
+│   │   ├── llm/
+│   │   │   ├── client.py        # DeepSeek API 客户端
+│   │   │   └── prompts.py       # Prompt 模板
+│   │   └── models/
+│   │       └── database.py      # SQLAlchemy ORM
+│   ├── data/
+│   │   └── lunyu.json           # 论语数据
 │   └── tests/
+│       ├── conftest.py
+│       ├── test_auth.py
+│       ├── test_e2e.py
+│       ├── test_edge_cases.py
+│       ├── test_llm_mock.py
+│       └── test_rag.py
 ├── frontend/
 │   └── src/
-│       ├── pages/           # Chat, Login
-│       ├── components/      # UI 组件
-│       └── lib/             # API 客户端
+│       ├── pages/               # Chat, Login
+│       ├── components/          # UI 组件
+│       └── lib/                 # API 客户端 + SSE 解析
 ├── docker-compose.yml
+├── LearnList.md                 # 学习路线 (38 知识点)
+├── LearnTalk.md                 # 学习对话笔记
 └── README.md
 ```
 
-## API 概览
+## API
 
 | 端点 | 说明 |
 |------|------|
 | POST /api/auth/register | 注册 |
-| POST /api/auth/login | 登录 |
+| POST /api/auth/login | 登录 → JWT |
 | GET /api/auth/me | 当前用户 |
-| POST /api/chat | 智能对话（JWT） |
-| POST /api/chat/stream | 流式对话（JWT） |
+| POST /api/chat | Agent 对话 |
+| POST /api/chat/stream | 流式对话 |
 | GET /api/chat/conversations | 对话列表 |
+| GET /api/chat/conversations/:id | 对话详情 |
 | DELETE /api/chat/conversations/:id | 删除对话 |
 
-## 学习笔记
+## 测试
 
-项目开发过程中的所有技术知识点已整理到 [Learning-Notes.md](Learning-Notes.md)，适合初学者阅读，也适合面试前复习。
+```bash
+cd backend
+python -m pytest tests/ -v
+```
+
+55+ 测试，覆盖单元 / Mock / 端到端三层。
