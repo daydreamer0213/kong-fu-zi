@@ -1,9 +1,21 @@
 """边界条件 & 异常场景测试"""
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def _agent_fake_response(content: str):
+    """构造 Agent 用的 mock LLM 响应（无 tool_calls，直接回答）"""
+    msg = MagicMock()
+    msg.content = content
+    msg.tool_calls = None
+    choice = MagicMock()
+    choice.message = msg
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
 
 import pytest
 from fastapi.testclient import TestClient
@@ -106,18 +118,18 @@ class TestChatEdgeCases:
 
     def test_send_minimal_valid(self, client: TestClient):
         t = self._auth(client, "minimal")
-        with patch("app.services.chat.llm_chat", return_value="善。"):
-            with patch("app.services.chat.classify_intent", return_value="闲聊"):
-                resp = client.post("/api/chat", json={"message": "仁"}, headers={"Authorization": f"Bearer {t}"})
-                assert resp.status_code == 200
+        fake = _agent_fake_response("善。")
+        with patch("app.services.agent.chat_with_tools", return_value=fake):
+            resp = client.post("/api/chat", json={"message": "仁"}, headers={"Authorization": f"Bearer {t}"})
+            assert resp.status_code == 200
 
     def test_send_long_message(self, client: TestClient):
         t = self._auth(client, "longmsg")
         msg = "子曰：" + "学而时习之，" * 150
-        with patch("app.services.chat.llm_chat", return_value="善哉。"):
-            with patch("app.services.chat.classify_intent", return_value="闲聊"):
-                resp = client.post("/api/chat", json={"message": msg}, headers={"Authorization": f"Bearer {t}"})
-                assert resp.status_code == 200
+        fake = _agent_fake_response("善哉。")
+        with patch("app.services.agent.chat_with_tools", return_value=fake):
+            resp = client.post("/api/chat", json={"message": msg}, headers={"Authorization": f"Bearer {t}"})
+            assert resp.status_code == 200
 
     def test_authenticated_chat_without_auth(self, client: TestClient):
         """主对话端点需认证"""

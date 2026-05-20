@@ -152,6 +152,7 @@ def test_agent_calls_tool_for_knowledge_query(client: TestClient):
         patch("app.services.agent.chat_with_tools",
               side_effect=[fake_tool_resp, fake_final]) as mock_llm,
         patch("app.services.agent.retrieve", return_value=mock_results),
+        patch("app.services.tools.retrieve", return_value=mock_results),
     ):
         r = client.post("/api/chat", json={"message": "什么是仁？"}, headers={
             "Authorization": f"Bearer {token}",
