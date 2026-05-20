@@ -7,12 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.database import SessionLocal, User
 from app.services.auth import get_current_user, get_db
-from app.services.chat import (
-    generate_smart_reply,
-    generate_smart_reply_stream,
-    generate_smart_reply_stream_with_history,
-    generate_smart_reply_with_history,
-)
+from app.services.agent import run_agent
 from app.services.conversation import (
     add_messages,
     create_conversation,
@@ -46,8 +41,8 @@ class SourceRef(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     sources: list[SourceRef] = []
-    intent: str = ""
     conversation_id: int
+    tool_calls: int = 0
 
 
 # ============================================================
@@ -61,7 +56,7 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """主对话入口——自动判断意图、管理对话历史、保存消息。
+    """主对话入口（Agent 模式）——LLM 自主决定是否查书、查几次。
 
     不传 conversation_id 则新建对话，传入则追加到已有对话。
     """
@@ -74,8 +69,8 @@ def chat(
     # 2. 取历史
     history = get_chat_history(db, conv.id)
 
-    # 3. 判断意图 + 生成
-    result = generate_smart_reply_with_history(request.message, history)
+    # 3. Agent 循环——LLM 自主决定是否调工具、调几次
+    result = run_agent(request.message, history)
 
     # 4. 保存消息
     add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
@@ -83,8 +78,8 @@ def chat(
     return ChatResponse(
         reply=result["reply"],
         sources=[SourceRef(**s) for s in result.get("sources", [])],
-        intent=result.get("intent", ""),
         conversation_id=conv.id,
+        tool_calls=result.get("tool_calls", 0),
     )
 
 
@@ -102,11 +97,18 @@ async def chat_stream(
 
     history = get_chat_history(db, conv.id)
 
+    from app.llm.client import chat_stream
+    from app.llm.prompts import get_agent_system_prompt
+
     async def sse_with_conv_id():
         yield f"data: [CONV_ID]{conv.id}\n\n"
+        msgs = [{"role": "system", "content": get_agent_system_prompt()}]
+        msgs.extend(history)
+        msgs.append({"role": "user", "content": request.message})
+        # 流式端点不用 Agent 循环——直接调用 LLM，逐 token 推送
         async for event in _stream_with_save(
             conv.id, request.message,
-            generate_smart_reply_stream_with_history(request.message, history),
+            _token_to_sse(chat_stream(msgs, temperature=0.8)),
         ):
             yield event
 
@@ -220,3 +222,11 @@ async def _stream_with_save(conv_id, user_msg, stream_generator):
             add_messages(db, conv_id, user_msg, full_reply, sources)
         finally:
             db.close()
+
+
+async def _token_to_sse(token_stream):
+    """把 chat_stream 输出的原始 token 转成 SSE 格式"""
+    from app.services.chat import _escape_sse as esc
+    async for token in token_stream:
+        yield f'data: {{"token":"{esc(token)}"}}\n\n'
+    yield "data: [DONE]\n\n"

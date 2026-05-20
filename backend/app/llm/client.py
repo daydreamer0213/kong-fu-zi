@@ -65,6 +65,34 @@ def chat(
         raise _handle_api_error(e) from e
 
 
+def chat_with_tools(
+    messages: list[dict],
+    temperature: float = 0.8,
+    max_tokens: int = 1024,
+    tools: list[dict] | None = None,
+):
+    """调 LLM，返回完整 response 对象（含 tool_calls 字段）。
+
+    和 chat() 的区别：
+    - chat() 只返回文本字符串（用于普通对话）
+    - chat_with_tools() 返回完整对象（用于 Agent 循环，需要检查 tool_calls）
+    """
+    try:
+        kwargs: dict = dict(
+            model=MODEL,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        return _client.chat.completions.create(**kwargs)
+    except (APIError, APITimeoutError, AuthenticationError, RateLimitError, IndexError) as e:
+        raise _handle_api_error(e) from e
+
+
 async def chat_stream(
     messages: list[dict],
     temperature: float = 1.1,

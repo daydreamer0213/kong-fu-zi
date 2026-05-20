@@ -40,3 +40,4 @@ docker-compose.override.yml
 # Test artifacts
 backend/data/test_req.json
 backend/data/test_resp.json
+backend/data/agent*.json
