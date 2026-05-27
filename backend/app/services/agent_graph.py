@@ -99,37 +99,82 @@ def _agent_node(state: AgentState) -> dict:
 def _tools_node(state: AgentState) -> dict:
     """工具执行节点。
 
-    解析最后一条 assistant 消息中的 tool_calls，逐一通过 MCP Client 执行，
-    结果以 tool 消息形式追加到 state。
+    LLM 一次可返回多个 tool_calls，它们互不依赖，用线程池并行执行。
+    示例：LLM 同时调 hybrid_search + web_search → 两个各自跑 → 等最慢的完成。
+    总耗时从 T1+T2 → max(T1, T2)。
+
+    为什么用 ThreadPoolExecutor 而不是 asyncio？
+      MCP Server 的 handler 是同步函数（调 ChromaDB、BGE、Tavily 都是同步 IO），
+      线程池天然适合包装同步函数做并行，不用改成 async/await。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     mcp = get_mcp_client()
     messages = state["messages"]
     last_msg = messages[-1]
     tool_calls = last_msg.get("tool_calls", [])
 
-    tool_msgs: list[dict] = []
+    if not tool_calls:
+        return {
+            "messages": [],
+            "iteration": state.get("iteration", 0),
+            "tool_call_count": state.get("tool_call_count", 0),
+            "sources": state.get("sources", []),
+        }
+
     new_count = state.get("tool_call_count", 0)
     sources: list[dict] = list(state.get("sources", []))
 
+    # 准备每个工具调用——解析参数，生成任务
+    tasks: list[dict] = []
     for tc in tool_calls:
         tool_name = tc["function"]["name"]
-
         try:
             args = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, KeyError):
             args = {}
+        tasks.append({
+            "id": tc["id"],
+            "name": tool_name,
+            "args": args,
+        })
 
-        # 通过 MCP 执行 — 自动路由到正确的 Server
-        tool_start = time.perf_counter()
-        result_text = mcp.call_tool(tool_name, args)
-        tool_ms = (time.perf_counter() - tool_start) * 1000
+    # 并行提交所有任务到线程池
+    # max_workers 限制在工具数内，无需无限开线程
+    max_workers = min(len(tasks), 8)
+    results_map: dict[str, dict] = {}  # tool_call_id → {result, duration_ms}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_run_single_tool, task): task
+            for task in tasks
+        }
+        for future in as_completed(futures):
+            task = futures[future]
+            try:
+                result = future.result()
+                results_map[task["id"]] = result
+            except Exception as e:
+                _log.warning("tools_node_failed", tool=task["name"], error=str(e))
+                results_map[task["id"]] = {
+                    "result_text": f"[工具执行异常] {e}",
+                    "duration_ms": 0,
+                }
+
+    # 按 tool_calls 原始顺序组装结果（保留顺序供 LLM 理解上下文）
+    tool_msgs: list[dict] = []
+    for tc in tool_calls:
+        tid = tc["id"]
+        tool_name = tc["function"]["name"]
+        result = results_map.get(tid, {"result_text": "[工具未执行]", "duration_ms": 0})
+        result_text = result["result_text"]
+        duration_ms = result["duration_ms"]
+
         new_count += 1
-
         _log.info(
             "tool_call",
             tool=tool_name,
-            args=args,
-            duration_ms=round(tool_ms, 1),
+            duration_ms=round(duration_ms, 1),
             result_len=len(result_text),
         )
 
@@ -137,6 +182,7 @@ def _tools_node(state: AgentState) -> dict:
         if tool_name in ("hybrid_search", "search_analects", "search_by_keyword"):
             if not sources:
                 try:
+                    args = _parse_args_from_task(tasks, tid)
                     query = args.get("query") or args.get("keyword", "")
                     sources = [
                         {"chapter": r["chapter"], "text": r["text"], "score": r["score"]}
@@ -147,17 +193,33 @@ def _tools_node(state: AgentState) -> dict:
 
         tool_msgs.append({
             "role": "tool",
-            "tool_call_id": tc["id"],
+            "tool_call_id": tid,
             "content": result_text,
         })
 
-    logger.debug("tools_node: 执行 %d 工具, 累计=%d", len(tool_calls), new_count)
+    logger.debug("tools_node: 并行执行 %d 工具, 累计=%d", len(tool_calls), new_count)
     return {
-        "messages": tool_msgs,     # reducer 追加
+        "messages": tool_msgs,
         "iteration": state.get("iteration", 0) + 1,
         "tool_call_count": new_count,
         "sources": sources,
     }
+
+
+def _run_single_tool(task: dict) -> dict:
+    """在线程池中执行单个工具调用（线程安全——每个线程独立调用 MCP）。"""
+    mcp = get_mcp_client()
+    tool_start = time.perf_counter()
+    result_text = mcp.call_tool(task["name"], task["args"])
+    duration_ms = (time.perf_counter() - tool_start) * 1000
+    return {"result_text": result_text, "duration_ms": duration_ms}
+
+
+def _parse_args_from_task(tasks: list[dict], tool_call_id: str) -> dict:
+    for t in tasks:
+        if t["id"] == tool_call_id:
+            return t["args"]
+    return {}
 
 
 # ---------------------------------------------------------------------------
