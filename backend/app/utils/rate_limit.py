@@ -28,25 +28,27 @@ _lock = threading.Lock()
 
 # 频率限制 — {user_id: [timestamp, timestamp, ...]}
 _user_windows: dict[str, list[float]] = {}
+_user_daily_windows: dict[str, list[float]] = {}
 
 # 配置
-MAX_CONCURRENT_PER_USER = 1   # 同一用户同时最多 1 个请求
-MAX_REQUESTS_PER_MINUTE = 15   # 同一用户每分钟最多 15 次
-WINDOW_SECONDS = 60            # 滑动窗口大小
+MAX_CONCURRENT_PER_USER = 1     # 同一用户同时最多 1 个请求
+MAX_REQUESTS_PER_MINUTE = 15     # 同一用户每分钟最多 15 次
+MAX_REQUESTS_PER_DAY = 150       # 同一用户每天最多 150 次
+WINDOW_SECONDS = 60              # 滑动窗口大小 (分钟级)
+DAY_SECONDS = 24 * 60 * 60       # 滑动窗口大小 (天级)
 
 
 def check_rate_limit(user_id: str):
-    """FastAPI 依赖：检查并发和频率限制，通过则放行，不通过抛 429。
+    """FastAPI 依赖：检查并发、分钟频率、日频率，通过则放行。
 
-    用法（在路由函数参数里）：
-        user_id: str = Depends(get_current_user_id_str)
-        check_rate_limit(user_id)
+    三层漏斗：并发 → 分钟级 → 天级
+    越外层越先检查（并发最紧急，日限制最宽松）
     """
-    # ---- 1. 并发控制 ----
     _acquire_concurrency_slot(user_id)
-
-    # ---- 2. 频率限制 ----
-    _check_frequency(user_id)
+    _check_frequency(user_id, _user_windows, MAX_REQUESTS_PER_MINUTE,
+                     WINDOW_SECONDS, "分钟", "子问之勤，夫子应接不暇")
+    _check_frequency(user_id, _user_daily_windows, MAX_REQUESTS_PER_DAY,
+                     DAY_SECONDS, "天", "子今日问已甚多，夫子疲矣，明日再来")
 
 
 def release_concurrency_slot(user_id: str):
@@ -75,25 +77,39 @@ def _acquire_concurrency_slot(user_id: str):
 # 频率限制 — 滑动窗口
 # ---------------------------------------------------------------------------
 
-def _check_frequency(user_id: str):
-    """检查滑动窗口内的请求次数"""
-    now = time.time()
-    window_start = now - WINDOW_SECONDS
+def _check_frequency(
+    user_id: str,
+    windows: dict[str, list[float]],
+    max_requests: int,
+    window_seconds: int,
+    unit: str,
+    msg: str,
+):
+    """通用滑动窗口频率检查。
 
-    if user_id not in _user_windows:
-        _user_windows[user_id] = []
+    Args:
+        windows: 时间戳字典（分钟级或天级）
+        max_requests: 窗口内上限
+        window_seconds: 窗口大小（秒）
+        unit: 时间单位名（用于日志）
+        msg: 超限时的中文提示
+    """
+    now = time.time()
+    window_start = now - window_seconds
+
+    if user_id not in windows:
+        windows[user_id] = []
 
     # 清理过期记录
-    timestamps = _user_windows[user_id]
+    timestamps = windows[user_id]
     timestamps[:] = [t for t in timestamps if t > window_start]
 
-    if len(timestamps) >= MAX_REQUESTS_PER_MINUTE:
-        # 计算最早一条记录什么时候过期
+    if len(timestamps) >= max_requests:
         earliest = min(timestamps)
-        retry_after = int(earliest + WINDOW_SECONDS - now) + 1
+        retry_after = int(earliest + window_seconds - now) + 1
         raise HTTPException(
             status_code=429,
-            detail=f"子问之勤，夫子应接不暇。请 {retry_after} 秒后再问。",
+            detail=f"{msg}。请 {retry_after} 秒后再问。",
             headers={"Retry-After": str(retry_after)},
         )
 
