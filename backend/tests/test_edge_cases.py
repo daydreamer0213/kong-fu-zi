@@ -119,7 +119,7 @@ class TestChatEdgeCases:
     def test_send_minimal_valid(self, client: TestClient):
         t = self._auth(client, "minimal")
         fake = _agent_fake_response("善。")
-        with patch("app.services.agent.chat_with_tools", return_value=fake):
+        with patch("app.services.agent_graph.chat_with_tools", return_value=fake):
             resp = client.post("/api/chat", json={"message": "仁"}, headers={"Authorization": f"Bearer {t}"})
             assert resp.status_code == 200
 
@@ -127,7 +127,7 @@ class TestChatEdgeCases:
         t = self._auth(client, "longmsg")
         msg = "子曰：" + "学而时习之，" * 150
         fake = _agent_fake_response("善哉。")
-        with patch("app.services.agent.chat_with_tools", return_value=fake):
+        with patch("app.services.agent_graph.chat_with_tools", return_value=fake):
             resp = client.post("/api/chat", json={"message": msg}, headers={"Authorization": f"Bearer {t}"})
             assert resp.status_code == 200
 

@@ -1,5 +1,15 @@
-"""Agent 工具注册表
+"""Agent 工具注册表（已废弃，保留仅用于兼容参考）
 
+⚠️ 此模块已被 MCP 框架替代。新代码请使用:
+  - app.mcp.MCPClient 进行工具发现和调用
+  - app.mcp.server.MCPServer 注册新工具
+  - app.mcp.servers.AnalectsServer / WebSearchServer 查看已有工具
+
+此文件保留仅为:
+  1. Git 历史可追溯工具设计的演进
+  2. 供面试展示"从硬编码工具到 MCP 架构"的升级对比
+
+原设计（已废弃）：
 每个工具是一个可调用函数 + 给 LLM 看的描述和参数定义。
 LLM 通过 Function Calling 决定调不调、调哪个、传什么参数。
 """

@@ -72,9 +72,9 @@ def test_conversation_lifecycle(client: TestClient):
     ]
 
     with (
-        patch("app.services.agent.chat_with_tools",
+        patch("app.services.agent_graph.chat_with_tools",
               return_value=_fake_response(mock_reply, tool_calls=None)),
-        patch("app.services.agent.retrieve", return_value=mock_results),
+        patch("app.services.agent_graph.retrieve", return_value=mock_results),
     ):
         # 创建对话
         r = client.post("/api/chat", json={"message": "什么是学？"}, headers={
@@ -149,9 +149,9 @@ def test_agent_calls_tool_for_knowledge_query(client: TestClient):
     ]
 
     with (
-        patch("app.services.agent.chat_with_tools",
+        patch("app.services.agent_graph.chat_with_tools",
               side_effect=[fake_tool_resp, fake_final]) as mock_llm,
-        patch("app.services.agent.retrieve", return_value=mock_results),
+        patch("app.services.agent_graph.retrieve", return_value=mock_results),
         patch("app.services.tools.retrieve", return_value=mock_results),
     ):
         r = client.post("/api/chat", json={"message": "什么是仁？"}, headers={
@@ -172,7 +172,7 @@ def test_agent_skips_tool_for_casual_chat(client: TestClient):
 
     fake_resp = _fake_response("善哉！来者皆是客。", tool_calls=None)
 
-    with patch("app.services.agent.chat_with_tools", return_value=fake_resp) as mock_llm:
+    with patch("app.services.agent_graph.chat_with_tools", return_value=fake_resp) as mock_llm:
         r = client.post("/api/chat", json={"message": "你好孔子"}, headers={
             "Authorization": f"Bearer {token}",
         })
@@ -194,7 +194,7 @@ def test_multi_user_isolation(client: TestClient):
     token_a = register_and_login(client, "user_a")
     token_b = register_and_login(client, "user_b")
 
-    with patch("app.services.agent.chat_with_tools",
+    with patch("app.services.agent_graph.chat_with_tools",
                return_value=_fake_response("善。", tool_calls=None)):
         # A 创建对话
         r = client.post("/api/chat", json={"message": "A 的对话"}, headers={

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # HuggingFace 镜像
     hf_endpoint: str = "https://hf-mirror.com"
 
+    # Tavily 联网搜索
+    tavily_api_key: str = ""
+
     # JWT 认证
     jwt_secret: str = _DEFAULT_SECRET
     jwt_algorithm: str = "HS256"

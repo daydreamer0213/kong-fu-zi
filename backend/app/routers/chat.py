@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
 
 class MessageRequest(ChatRequest):
     conversation_id: int | None = Field(default=None, description="对话ID，不传则新建对话")
+    skill: str | None = Field(default=None, description="Skill名称，如poetry/debate，不传则默认teaching")
 
 
 class SourceRef(BaseModel):
@@ -70,7 +71,7 @@ def chat(
     history = get_chat_history(db, conv.id)
 
     # 3. Agent 循环——LLM 自主决定是否调工具、调几次
-    result = run_agent(request.message, history)
+    result = run_agent(request.message, history, request.skill)
 
     # 4. 保存消息
     add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
@@ -99,10 +100,15 @@ async def chat_stream(
 
     from app.llm.client import chat_stream
     from app.llm.prompts import get_agent_system_prompt
+    from app.skills import get_skill_registry
 
     async def sse_with_conv_id():
         yield f"data: [CONV_ID]{conv.id}\n\n"
-        msgs = [{"role": "system", "content": get_agent_system_prompt()}]
+        # 解析 Skill 的系统 Prompt
+        registry = get_skill_registry()
+        skill = registry.resolve(request.skill)
+        sys_prompt = skill.system_prompt if skill else get_agent_system_prompt()
+        msgs = [{"role": "system", "content": sys_prompt}]
         msgs.extend(history)
         msgs.append({"role": "user", "content": request.message})
         # 流式端点不用 Agent 循环——直接调用 LLM，逐 token 推送

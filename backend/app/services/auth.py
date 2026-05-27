@@ -110,4 +110,9 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
+
+    # 注入到结构化日志上下文——后续所有日志自动带上 user_id
+    from app.utils.logging import set_user_id
+    set_user_id(str(user.id))
+
     return user
