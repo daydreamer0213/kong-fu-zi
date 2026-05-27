@@ -234,6 +234,13 @@ class MCPServer(ABC):
 
         _definition, handler = entry
 
+        # 参数校验——防止 LLM 传错类型导致 handler 内部崩溃
+        # MCP 的 inputSchema 是 JSON Schema，这里做轻量校验（不实现完整规范）
+        # 只检查两件事：必填字段是否存在、字符串字段是否真的是字符串
+        err = _validate_args(arguments, _definition.inputSchema)
+        if err:
+            return JsonRpcResponse.error_response(INVALID_PARAMS, err, request.id)
+
         # 执行工具 handler
         try:
             result_text = handler(arguments)
@@ -250,3 +257,46 @@ class MCPServer(ABC):
             {"content": [{"type": "text", "text": result_text}]},
             request.id,
         )
+
+
+# ---------------------------------------------------------------------------
+# 参数校验 — JSON Schema 轻量实现
+# ---------------------------------------------------------------------------
+# 不实现完整 JSON Schema 规范（type/format/minLength/enum/...），
+# 只做两道最常见的检查：required + string type coercion。
+# LLM 传错参数的概率很低，但一旦传错（如 query=123 而非 "123"），
+# 这里拦住比 handler 崩溃 → 靠 MCP 兜底 → LLM 重新调用 更省 token。
+
+
+def _validate_args(arguments: dict, input_schema: dict) -> str | None:
+    """校验工具参数，返回错误文本或 None（通过）。"""
+    # 1. 检查必填字段
+    required: list[str] = input_schema.get("required", [])
+    for field in required:
+        if field not in arguments or arguments[field] is None:
+            return f"缺少必填参数: {field}"
+
+    # 2. 字符串类型检查 + 自动转换
+    props = input_schema.get("properties", {})
+    for field, schema in props.items():
+        if field not in arguments:
+            continue
+        val = arguments[field]
+        expected_type = schema.get("type", "")
+
+        if expected_type == "string" and not isinstance(val, str):
+            # 尝试安全转换为字符串（数字、布尔等可转，list/dict 不可转）
+            if isinstance(val, (int, float, bool)):
+                arguments[field] = str(val)
+            else:
+                return f"参数 {field} 应为字符串，实际类型为 {type(val).__name__}"
+
+        elif expected_type == "integer" and not isinstance(val, int):
+            if isinstance(val, str) and val.isdigit():
+                arguments[field] = int(val)
+            elif isinstance(val, float) and val == int(val):
+                arguments[field] = int(val)
+            else:
+                return f"参数 {field} 应为整数，实际值为 {val}"
+
+    return None  # 校验通过
