@@ -24,33 +24,6 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 提取 Prompt — 低温度、结构化输出、严格限定提取范围
-_EXTRACTION_PROMPT = """分析以下对话，提取关于用户的持久信息。
-
-## 需要提取的信息类型
-- identity: 用户的身份、职业、角色（如"学生"、"程序员"、"家长"）
-- level: 用户的知识水平（如"入门"、"中级"、"精通"）
-- preferences: 用户明确表达的偏好（如"喜欢白话解释"、"认为子路过于冲动"）
-- context: 对后续对话有用的背景信息（如"正在备考"、"最近在读学而篇"）
-
-## 不需要提取的信息
-- 一次性提问（"仁是什么意思"）← 不是持久信息
-- 临时寒暄
-- 论语句子的具体内容
-- 助手已经回答的问题
-
-## 输出格式
-严格输出 JSON，不包含任何其他文本：
-{"identity": "", "level": "", "preferences": [], "context": ""}
-
-如果本轮对话没有新的持久信息，输出：{"identity":"","level":"","preferences":[],"context":""}
-
-## 对话
-用户：{user_message}
-助手：{assistant_reply}
-
-JSON："""
-
 
 def extract_profile(
     user_message: str,
@@ -58,18 +31,23 @@ def extract_profile(
 ) -> dict:
     """从一轮对话中提取用户画像片段。
 
+    Prompt 从 prompts/profile.yaml 集中加载。
     返回空 dict 表示本轮没有新信息。
-    此函数不负责 merge——merge 由 update_user_profile() 完成。
     """
-    prompt = _EXTRACTION_PROMPT.replace("{user_message}", user_message)
-    prompt = prompt.replace("{assistant_reply}", assistant_reply[:500])
+    from prompts import get_prompt_registry
+
+    tpl = get_prompt_registry().get("profile")
+    if tpl is None:
+        return {}
+    prompt = tpl.format(user_message=user_message,
+                        assistant_reply=assistant_reply[:500])
 
     try:
         from app.llm.client import chat
         raw = chat(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=200,
+            temperature=tpl.temperature,
+            max_tokens=tpl.max_tokens,
         )
         return _parse_extraction(raw)
     except Exception:

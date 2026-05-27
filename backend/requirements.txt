@@ -14,3 +14,4 @@ jieba==0.42.1
 tavily-python==0.7.12
 langgraph==1.2.2
 structlog==25.5.0
+PyYAML==6.0.3

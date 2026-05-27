@@ -113,39 +113,26 @@ def inject_summary(messages: list[dict], db: Session, conversation_id: int) -> l
 # 内部
 # ---------------------------------------------------------------------------
 
-_SUMMARIZE_PROMPT = """将以下对话内容合并为一段简洁的摘要（不超过300字）。
-
-如果已有旧摘要：将旧摘要和新内容整合，保持连贯。
-如果没有旧摘要：从对话中提取关键讨论点。
-
-## 内容取舍优先级（字数紧张时按此顺序丢弃）：
-1. 保留：用户明确表达的观点偏好、身份信息、持续关注的主题
-2. 保留：助手引用的核心论语章句和关键论述
-3. 可丢弃：一般性问答的具体措辞（只留结论，不引原文）
-4. 可丢弃：寒暄、问候、过渡性对话
-5. 优先丢弃：最早讨论的内容——越久远的越先被精简
-
-只记录实质讨论内容。用第三人称叙述，如"用户询问了..."、"助手解释了..."。
-
-旧摘要：{existing}
-
-新对话：
-{new_messages}
-
-摘要："""
-
-
 def _generate_summary(new_content: str, existing: str) -> str:
-    """调 LLM 生成/更新摘要"""
-    prompt = _SUMMARIZE_PROMPT.replace("{existing}", existing or "（无）")
-    prompt = prompt.replace("{new_messages}", new_content[:2000])  # 截断过长输入
+    """调 LLM 生成/更新摘要。
+
+    Prompt 从 prompts/summary.yaml 集中加载，和调用逻辑分离。
+    修改 Prompt 只需编辑 YAML 文件，不改代码。
+    """
+    from prompts import get_prompt_registry
+
+    tpl = get_prompt_registry().get("summary")
+    if tpl is None:
+        return existing or ""  # Prompt 文件丢失，保留旧摘要
+    prompt = tpl.format(existing=existing or "（无）",
+                        new_messages=new_content[:2000])
 
     try:
         from app.llm.client import chat
         return chat(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=300,
+            temperature=tpl.temperature,
+            max_tokens=tpl.max_tokens,
         ).strip()
     except Exception:
         logger.exception("摘要生成失败")

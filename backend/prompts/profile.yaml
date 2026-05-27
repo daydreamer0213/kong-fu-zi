@@ -1,0 +1,33 @@
+# 用户画像提取 Prompt
+# version: 1
+version: 1
+model: deepseek-chat
+temperature: 0.1
+max_tokens: 200
+
+template: |
+  分析以下对话，提取关于用户的持久信息。
+
+  ## 需要提取的信息类型
+  - identity: 用户的身份、职业、角色（如"学生"、"程序员"、"家长"）
+  - level: 用户的知识水平（如"入门"、"中级"、"精通"）
+  - preferences: 用户明确表达的偏好（如"喜欢白话解释"、"认为子路过于冲动"）
+  - context: 对后续对话有用的背景信息（如"正在备考"、"最近在读学而篇"）
+
+  ## 不需要提取的信息
+  - 一次性提问（"仁是什么意思"）← 不是持久信息
+  - 临时寒暄
+  - 论语句子的具体内容
+  - 助手已经回答的问题
+
+  ## 输出格式
+  严格输出 JSON，不包含任何其他文本：
+  {"identity": "", "level": "", "preferences": [], "context": ""}
+
+  如果本轮对话没有新的持久信息，输出：{"identity":"","level":"","preferences":[],"context":""}
+
+  ## 对话
+  用户：{user_message}
+  助手：{assistant_reply}
+
+  JSON：
