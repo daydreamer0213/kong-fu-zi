@@ -67,14 +67,18 @@ def chat(
     else:
         conv = create_conversation(db, user.id, request.message)
 
-    # 2. 取历史
+    # 2. 取历史 + 用户画像
     history = get_chat_history(db, conv.id)
+    profile_text = _load_profile(user)
 
-    # 3. Agent 循环——LLM 自主决定是否调工具、调几次
-    result = run_agent(request.message, history, request.skill)
+    # 3. Agent 循环
+    result = run_agent(request.message, history, request.skill, profile_text)
 
     # 4. 保存消息
     add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
+
+    # 5. 异步提取用户画像（后台线程，不阻塞响应）
+    _extract_profile_async(user, request.message, result["reply"])
 
     return ChatResponse(
         reply=result["reply"],
@@ -236,3 +240,74 @@ async def _token_to_sse(token_stream):
     async for token in token_stream:
         yield f'data: {{"token":"{esc(token)}"}}\n\n'
     yield "data: [DONE]\n\n"
+
+
+# ============================================================
+# 用户画像辅助
+# ============================================================
+
+def _load_profile(user) -> str:
+    """加载用户的画像并格式化为 Prompt 注入文本"""
+    import json
+    from app.services.profile import format_profile_for_prompt
+
+    if not user.profile_json:
+        return ""
+    try:
+        profile = json.loads(user.profile_json)
+        return format_profile_for_prompt(profile)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+
+
+def _extract_profile_async(user, user_message: str, assistant_reply: str):
+    """后台线程提取用户画像——不阻塞 HTTP 响应"""
+    import json
+    import threading
+
+    from app.models.database import SessionLocal
+    from app.services.profile import extract_profile, merge_profile
+
+    def _run():
+        db = SessionLocal()
+        try:
+            # 提取本轮对话的画像片段
+            fragment = extract_profile(user_message, assistant_reply)
+            if not _has_content(fragment):
+                return  # 本轮无新信息，跳过
+
+            # 加载现有画像，合并
+            existing = None
+            if user.profile_json:
+                try:
+                    existing = json.loads(user.profile_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            merged = merge_profile(existing, fragment)
+
+            # 写回数据库
+            u = db.query(User).filter(User.id == user.id).first()
+            if u:
+                u.profile_json = json.dumps(merged, ensure_ascii=False)
+                db.commit()
+        except Exception:
+            pass  # 画像提取是最低优先级的辅助功能，失败静默
+        finally:
+            db.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+def _has_content(fragment: dict) -> bool:
+    """检查画像片段是否有实际内容"""
+    if fragment.get("identity", "").strip():
+        return True
+    if fragment.get("level", "").strip():
+        return True
+    if fragment.get("context", "").strip():
+        return True
+    if fragment.get("preferences"):
+        return True
+    return False

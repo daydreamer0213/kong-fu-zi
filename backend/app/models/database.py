@@ -19,6 +19,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(128), nullable=False)
+    profile_json = Column(Text, nullable=True)  # JSON: 用户画像 {"identity":"","preferences":[],...}
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     conversations = relationship("Conversation", back_populates="user")

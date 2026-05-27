@@ -32,23 +32,26 @@ def run_agent(
     user_message: str,
     history: list[dict] | None = None,
     skill_name: str | None = None,
+    profile_text: str = "",
 ) -> dict:
-    """运行 Agent 循环，带降级兜底和 Skill 支持。
+    """运行 Agent 循环，带降级兜底、Skill 支持和用户画像。
 
     降级链: L0(Agent+工具) → L1(纯LLM) → L2(固定回复)
     Skill: 可选的角色模式，影响 System Prompt 和可用工具集
+    Profile: 跨对话的用户画像，注入 System Prompt 让角色感知用户背景
 
     Args:
         user_message: 用户当前消息
-        history: 历史消息列表 [{"role":"...", "content":"..."}, ...]
-        skill_name: Skill 名称（如 "poetry", "debate"），None=默认 "teaching"
+        history: 历史消息列表
+        skill_name: Skill 名称，None=默认 "teaching"
+        profile_text: 格式化后的画像文本（来自 format_profile_for_prompt）
 
     Returns:
         {"reply": "最终回复文本", "sources": [...], "tool_calls": 调用工具次数}
     """
     # ---- L0: 完整 Agent 模式 ----
     try:
-        return _agent_loop_with_tools(user_message, history, skill_name)
+        return _agent_loop_with_tools(user_message, history, skill_name, profile_text)
     except HTTPException as e:
         if e.status_code not in (502, 503, 504):
             raise
@@ -92,20 +95,20 @@ def _agent_loop_with_tools(
     user_message: str,
     history: list[dict] | None = None,
     skill_name: str | None = None,
+    profile_text: str = "",
 ) -> dict:
     """Agent 循环 — LangGraph 版本。
 
-    手写 while 循环已替换为 LangGraph StateGraph：
-      - 节点: agent(调LLM) + tools(执行工具)
-      - 条件边: agent → tools(有tool_calls) / END(无tool_calls)
-      - 普通边: tools → agent(执行完回到LLM)
-
-    和旧版的区别详见 services/agent_graph.py 顶部注释。
+    画像注入：如果 profile_text 非空，拼接到 System Prompt 末尾。
     """
     from app.services.agent_graph import run_agent_graph
 
     mcp = get_mcp_client()
     skill, system_prompt, allowed_tools = _resolve_skill(skill_name)
+
+    # 注入用户画像（在工具描述之前，角色设定之后）
+    if profile_text:
+        system_prompt = system_prompt + "\n\n" + profile_text
 
     # 获取并过滤工具
     all_tools = mcp.discover_tools()
