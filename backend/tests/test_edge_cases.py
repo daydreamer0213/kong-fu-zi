@@ -169,10 +169,10 @@ class TestLLMEdgeCases:
             from app.services.chat import classify_intent
             assert classify_intent("你好") == "闲聊"  # fallback
 
-    def test_history_max_20_messages(self):
-        """验证 get_chat_history 最多返回 20 条"""
+    def test_history_max_messages(self):
+        """验证 get_chat_history 限制在配置的窗口大小内"""
         from app.services.conversation import get_chat_history, MAX_HISTORY_MESSAGES
-        assert MAX_HISTORY_MESSAGES == 20
+        assert MAX_HISTORY_MESSAGES == 10  # 最近 5 轮
 
     def test_empty_history(self):
         """空历史消息——正常回复"""

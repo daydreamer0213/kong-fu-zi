@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.database import Conversation, Message
 
-MAX_HISTORY_MESSAGES = 20  # 最近 10 轮对话
+MAX_HISTORY_MESSAGES = 10  # 最近 5 轮对话（超出部分自动摘要压缩）
 
 
 def create_conversation(db: Session, user_id: int, first_message: str) -> Conversation:
@@ -58,7 +58,7 @@ def add_messages(
     assistant_reply: str,
     sources: list[dict] | None = None,
 ):
-    """保存一轮对话（用户消息 + 助手回复）。"""
+    """保存一轮对话（用户消息 + 助手回复），触发摘要检查。"""
     db.add(Message(conversation_id=conversation_id, role="user", content=user_message))
     db.add(Message(
         conversation_id=conversation_id,
@@ -66,24 +66,33 @@ def add_messages(
         content=assistant_reply,
         sources=json.dumps(sources, ensure_ascii=False) if sources else None,
     ))
-    # 更新对话的 updated_at
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:
         conv.updated_at = datetime.now(timezone.utc)
     db.commit()
 
+    # 触发增量摘要（超出 5 轮时对溢出部分做压缩）
+    from app.services.summarizer import maybe_summarize
+    maybe_summarize(db, conversation_id)
+
 
 def get_chat_history(db: Session, conversation_id: int) -> list[dict]:
     """获取对话历史，返回 LLM 需要的 messages 格式。
 
-    只取最近 MAX_HISTORY_MESSAGES 条（10轮），超出的旧消息不传给 LLM。
+    上下文窗口：最近 5 轮（10 条消息）保留原文。
+    超出部分通过 Conversation.summary 压缩注入——"前情提要"消息。
     """
     messages = (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
         .order_by(Message.created_at.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        .limit(MAX_HISTORY_MESSAGES)  # 最近 5 轮
         .all()
     )
-    messages.reverse()  # 正序
-    return [{"role": m.role, "content": m.content} for m in messages]
+    messages.reverse()
+
+    result = [{"role": m.role, "content": m.content} for m in messages]
+
+    # 注入摘要（超出 5 轮的历史压缩版）
+    from app.services.summarizer import inject_summary
+    return inject_summary(result, db, conversation_id)

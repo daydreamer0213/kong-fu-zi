@@ -34,6 +34,7 @@ class Conversation(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    summary = Column(Text, nullable=True)  # 超出5轮的旧消息摘要（~300字），节省 token
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation",
                             cascade="all,delete", order_by="Message.created_at")
