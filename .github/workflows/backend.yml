@@ -1,0 +1,37 @@
+name: Backend Test
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Run tests
+        env:
+          DEEPSEEK_API_KEY: "sk-test-ci-placeholder"
+        run: python -m pytest tests/ -v --ignore=tests/test_rag.py --ignore=tests/test_rag_extensions.py --ignore=tests/test_agent_graph.py --tb=short
