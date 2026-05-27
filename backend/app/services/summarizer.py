@@ -35,10 +35,13 @@ MAX_SUMMARY_CHARS = 300
 def maybe_summarize(db: Session, conversation_id: int):
     """如果对话轮数超出限制，对溢出部分做增量摘要。
 
-    在 add_messages() 之后调用——每次新增一轮对话后检查。
-    只在确实需要时调 LLM（轻量级，额外开销 ~200ms）。
+    增量策略（避免重复摘要）：
+      第6轮后：溢出=第1轮 → 生成摘要S1
+      第7轮后：溢出=第1-2轮 → 只取"新增溢出"=第2轮 → 把S1当旧摘要，合并S1+第2轮→S2
+      第8轮后：溢出=第1-3轮 → 只取"新增溢出"=第3轮 → 合并S2+第3轮→S3
+
+    这样每次只处理新增的溢出轮数（通常2条消息），旧内容已在摘要中。
     """
-    # 统计总轮数（user 消息数 = 对话轮数）
     total_rounds = (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id, Message.role == "user")
@@ -46,34 +49,48 @@ def maybe_summarize(db: Session, conversation_id: int):
     )
 
     if total_rounds <= MAX_FULL_ROUNDS:
-        return  # 还不够 5 轮，不需要摘要
+        return
 
-    # 取出超出 5 轮的那部分消息（最早的溢出轮）
-    overflow_count = (total_rounds - MAX_FULL_ROUNDS) * 2  # 每轮 2 条（user+assistant）
-    overflow_messages = (
+    existing_summary = _get_existing_summary(db, conversation_id)
+
+    # 取全部消息（按时间正序）
+    all_messages = (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
         .order_by(Message.created_at.asc())
-        .limit(overflow_count)
         .all()
     )
 
-    if not overflow_messages:
+    total_overflow = (total_rounds - MAX_FULL_ROUNDS) * 2  # 当前总共溢出多少条
+
+    # 如果有旧摘要，只取"新溢出"的消息——旧溢出已经包含在旧摘要里了
+    if existing_summary:
+        # 上一次的溢出量 = 总溢出 - 本轮新增的2条
+        prev_overflow = total_overflow - 2
+        if prev_overflow > 0:
+            new_overflow_msgs = all_messages[prev_overflow:total_overflow]
+        else:
+            new_overflow_msgs = all_messages[:total_overflow]
+    else:
+        # 第一次生成摘要，取全部溢出
+        new_overflow_msgs = all_messages[:total_overflow]
+
+    if not new_overflow_msgs:
         return
 
-    # 格式化为文本
-    new_content = _format_messages(overflow_messages)
-    existing_summary = _get_existing_summary(db, conversation_id)
+    new_content = _format_messages(new_overflow_msgs)
 
-    # 调 LLM 生成/更新摘要
+    # 调 LLM 合并：旧摘要 + 新溢出 → 更新后的摘要
     summary = _generate_summary(new_content, existing_summary)
 
-    # 存回数据库
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:
         conv.summary = summary[:MAX_SUMMARY_CHARS]
         db.commit()
-        logger.debug("对话 %d 摘要已更新 (%d 字)", conversation_id, len(summary))
+        logger.debug(
+            "对话 %d 摘要已更新: +%d条消息 → %d字",
+            conversation_id, len(new_overflow_msgs), len(summary),
+        )
 
 
 def inject_summary(messages: list[dict], db: Session, conversation_id: int) -> list[dict]:
