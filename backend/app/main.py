@@ -8,7 +8,6 @@ from app.models.database import init_db
 from app.routers import auth, chat
 from app.mcp import get_mcp_client
 from app.mcp.servers import AnalectsServer, MemoryServer, WebSearchServer
-from app.models.memory import init_memory_table
 from app.skills import get_skill_registry
 from app.skills.builtin import BUILTIN_SKILLS
 from app.utils.logging import RequestLoggingMiddleware, setup_logging
@@ -22,9 +21,8 @@ async def lifespan(app: FastAPI):
     # 0. 先初始化结构化日志
     setup_logging(dev_mode=True)
 
-    # 1. 数据库
+    # 1. 数据库（MemoryFact 表由 ORM 自动创建，无需单独初始化）
     init_db()
-    init_memory_table()
 
     # 2. MCP Server
     mcp = get_mcp_client()

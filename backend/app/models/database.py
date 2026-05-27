@@ -52,6 +52,25 @@ class Message(Base):
     conversation = relationship("Conversation", back_populates="messages")
 
 
+class MemoryFact(Base):
+    """用户长期记忆 — 跨对话持久化的关键事实。
+
+    和 Message 的区别：
+      - Message: 对话历史流水，被动记录，对话结束不再主动检索
+      - MemoryFact: 用户要求记住的信息，跨对话持久，Agent 通过 recall 主动检索
+
+    向量检索用 BGE embedding + 余弦相似度，不做 ChromaDB 索引（用户记忆 < 50 条）。
+    """
+
+    __tablename__ = "memory_facts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    fact_text = Column(Text, nullable=False)
+    embedding_json = Column(Text, nullable=True)  # BGE 1024维向量, JSON格式
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def init_db():
     """创建所有表（如果不存在）。启动时调用一次。"""
     Base.metadata.create_all(bind=engine)

@@ -25,9 +25,11 @@ def override_get_db():
         db.close()
 
 
-# 替换 FastAPI 依赖+模块级 SessionLocal
+# 替换所有模块的 SessionLocal 为测试版（auth + database + memory 等）
 from app.services import auth as auth_svc
+from app.models import database as db_module
 auth_svc.SessionLocal = TestSession
+db_module.SessionLocal = TestSession
 app.dependency_overrides[auth_svc.get_db] = override_get_db
 
 # Chat router 也从 auth service 导入 get_db
