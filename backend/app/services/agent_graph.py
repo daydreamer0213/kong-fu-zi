@@ -42,6 +42,7 @@ _log = get_logger("agent")
 
 MAX_ITERATIONS = 5
 MAX_DURATION_SECONDS = 120
+TOOL_TIMEOUT_SECONDS = 15     # 单个工具调用超时
 
 # ---------------------------------------------------------------------------
 # State — 用 TypedDict（LangGraph 标准方式）
@@ -152,12 +153,12 @@ def _tools_node(state: AgentState) -> dict:
         for future in as_completed(futures):
             task = futures[future]
             try:
-                result = future.result()
+                result = future.result(timeout=TOOL_TIMEOUT_SECONDS)
                 results_map[task["id"]] = result
             except Exception as e:
                 _log.warning("tools_node_failed", tool=task["name"], error=str(e))
                 results_map[task["id"]] = {
-                    "result_text": f"[工具执行异常] {e}",
+                    "result_text": f"[工具执行超时或异常] {e}",
                     "duration_ms": 0,
                 }
 
