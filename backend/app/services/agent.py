@@ -106,9 +106,13 @@ def _agent_loop_with_tools(
     mcp = get_mcp_client()
     skill, system_prompt, allowed_tools = _resolve_skill(skill_name)
 
-    # 注入用户画像（在工具描述之前，角色设定之后）
+    # 注入用户画像
     if profile_text:
         system_prompt = system_prompt + "\n\n" + profile_text
+
+    # 注入安全加固声明（分隔符 + 角色锚点）
+    from app.utils.security import SECURITY_HARDENING
+    system_prompt = system_prompt + SECURITY_HARDENING
 
     # 获取并过滤工具
     all_tools = mcp.discover_tools()

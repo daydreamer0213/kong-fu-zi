@@ -59,10 +59,16 @@ def chat(
 ):
     """主对话入口（Agent 模式）——LLM 自主决定是否查书、查几次。"""
     from app.utils.rate_limit import check_rate_limit, release_concurrency_slot
+    from app.utils.security import check_input, check_output
 
     uid = str(user.id)
     check_rate_limit(uid)
     try:
+        # 0. 输入安全检查
+        rejection = check_input(request.message)
+        if rejection:
+            raise HTTPException(status_code=400, detail=rejection)
+
         # 1. 获取或创建对话
         if request.conversation_id:
             conv = get_conversation(db, request.conversation_id, user.id)
@@ -75,6 +81,11 @@ def chat(
 
         # 3. Agent 循环
         result = run_agent(request.message, history, request.skill, profile_text)
+
+        # 3.5 输出角色一致性检测（不截断回复，仅记录告警日志）
+        output_issue = check_output(result["reply"])
+        if output_issue:
+            logger.warning("输出安全告警: %s", output_issue)
 
         # 4. 保存消息
         add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
