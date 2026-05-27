@@ -57,35 +57,39 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """主对话入口（Agent 模式）——LLM 自主决定是否查书、查几次。
+    """主对话入口（Agent 模式）——LLM 自主决定是否查书、查几次。"""
+    from app.utils.rate_limit import check_rate_limit, release_concurrency_slot
 
-    不传 conversation_id 则新建对话，传入则追加到已有对话。
-    """
-    # 1. 获取或创建对话
-    if request.conversation_id:
-        conv = get_conversation(db, request.conversation_id, user.id)
-    else:
-        conv = create_conversation(db, user.id, request.message)
+    uid = str(user.id)
+    check_rate_limit(uid)
+    try:
+        # 1. 获取或创建对话
+        if request.conversation_id:
+            conv = get_conversation(db, request.conversation_id, user.id)
+        else:
+            conv = create_conversation(db, user.id, request.message)
 
-    # 2. 取历史 + 用户画像
-    history = get_chat_history(db, conv.id)
-    profile_text = _load_profile(user)
+        # 2. 取历史 + 用户画像
+        history = get_chat_history(db, conv.id)
+        profile_text = _load_profile(user)
 
-    # 3. Agent 循环
-    result = run_agent(request.message, history, request.skill, profile_text)
+        # 3. Agent 循环
+        result = run_agent(request.message, history, request.skill, profile_text)
 
-    # 4. 保存消息
-    add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
+        # 4. 保存消息
+        add_messages(db, conv.id, request.message, result["reply"], result.get("sources"))
 
-    # 5. 异步提取用户画像（后台线程，不阻塞响应）
-    _extract_profile_async(user, request.message, result["reply"])
+        # 5. 异步提取用户画像（后台线程，不阻塞响应）
+        _extract_profile_async(user, request.message, result["reply"])
 
-    return ChatResponse(
-        reply=result["reply"],
-        sources=[SourceRef(**s) for s in result.get("sources", [])],
-        conversation_id=conv.id,
-        tool_calls=result.get("tool_calls", 0),
-    )
+        return ChatResponse(
+            reply=result["reply"],
+            sources=[SourceRef(**s) for s in result.get("sources", [])],
+            conversation_id=conv.id,
+            tool_calls=result.get("tool_calls", 0),
+        )
+    finally:
+        release_concurrency_slot(uid)
 
 
 @router.post("/stream")
@@ -95,6 +99,12 @@ async def chat_stream(
     user: User = Depends(get_current_user),
 ):
     """主对话入口（流式）——SSE 逐 token 推送。"""
+    from app.utils.rate_limit import check_rate_limit, release_concurrency_slot
+
+    uid = str(user.id)
+    check_rate_limit(uid)
+    # 流式端点的并发槽位在 SSE 流结束时释放（sse_with_conv_id 的 finally 中）
+
     if request.conversation_id:
         conv = get_conversation(db, request.conversation_id, user.id)
     else:
@@ -107,20 +117,21 @@ async def chat_stream(
     from app.skills import get_skill_registry
 
     async def sse_with_conv_id():
-        yield f"data: [CONV_ID]{conv.id}\n\n"
-        # 解析 Skill 的系统 Prompt
-        registry = get_skill_registry()
-        skill = registry.resolve(request.skill)
-        sys_prompt = skill.system_prompt if skill else get_agent_system_prompt()
-        msgs = [{"role": "system", "content": sys_prompt}]
-        msgs.extend(history)
-        msgs.append({"role": "user", "content": request.message})
-        # 流式端点不用 Agent 循环——直接调用 LLM，逐 token 推送
-        async for event in _stream_with_save(
-            conv.id, request.message,
-            _token_to_sse(chat_stream(msgs, temperature=0.8)),
-        ):
-            yield event
+        try:
+            yield f"data: [CONV_ID]{conv.id}\n\n"
+            registry = get_skill_registry()
+            skill = registry.resolve(request.skill)
+            sys_prompt = skill.system_prompt if skill else get_agent_system_prompt()
+            msgs = [{"role": "system", "content": sys_prompt}]
+            msgs.extend(history)
+            msgs.append({"role": "user", "content": request.message})
+            async for event in _stream_with_save(
+                conv.id, request.message,
+                _token_to_sse(chat_stream(msgs, temperature=0.8)),
+            ):
+                yield event
+        finally:
+            release_concurrency_slot(uid)
 
     return StreamingResponse(
         sse_with_conv_id(),
