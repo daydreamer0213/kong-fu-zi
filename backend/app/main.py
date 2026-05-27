@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models.database import init_db
 from app.routers import auth, chat
 from app.mcp import get_mcp_client
-from app.mcp.servers import AnalectsServer, WebSearchServer
+from app.mcp.servers import AnalectsServer, MemoryServer, WebSearchServer
+from app.models.memory import init_memory_table
 from app.skills import get_skill_registry
 from app.skills.builtin import BUILTIN_SKILLS
 from app.utils.logging import RequestLoggingMiddleware, setup_logging
@@ -23,11 +24,13 @@ async def lifespan(app: FastAPI):
 
     # 1. 数据库
     init_db()
+    init_memory_table()
 
     # 2. MCP Server
     mcp = get_mcp_client()
     mcp.register(AnalectsServer())
     mcp.register(WebSearchServer())
+    mcp.register(MemoryServer())
     mcp.initialize()
     logger.info("MCP 框架初始化完成，共 %d 个 Server", len(mcp._servers))
 
