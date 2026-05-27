@@ -48,6 +48,7 @@
 - **长期记忆**：Agent 工具型（remember/recall）+ 系统自动画像提取，记忆用向量语义检索，画像注入 System Prompt
 - **Skill 系统**：3 种对话模式（夫子教诲/诗词赏析/经学辩论），每种独立配置 System Prompt 和工具权限
 - **上下文管理**：滑动窗口 5 轮原文 + 超出自动 LLM 增量摘要
+- **安全与限流**：提示词注入三层防御（输入过滤 + Prompt 分隔符加固 + 输出角色检测），三层限流漏斗（并发控制 + 分钟级 + 天级滑动窗口）
 - **结构化日志**：structlog + trace_id 全链路追踪 + token 用量记录
 
 ## 技术栈
@@ -138,7 +139,9 @@ kong/
 │   │   │   └── memory.py            # 记忆存储 + 向量检索
 │   │   └── utils/
 │   │       ├── resilience.py        # 重试/熔断/降级
-│   │       └── logging.py           # structlog 配置 + 请求中间件
+│   │       ├── logging.py           # structlog 配置 + 请求中间件
+│   │       ├── rate_limit.py        # 限流 (并发+分钟+天级)
+│   │       └── security.py          # 提示词注入防御
 │   ├── prompts/
 │   │   ├── summary.yaml             # 摘要生成 Prompt (v2)
 │   │   └── profile.yaml             # 画像提取 Prompt (v1)
@@ -178,6 +181,8 @@ kong/
 | 记忆系统 | Agent 工具型 + 自动画像提取 | 记忆管"事"需向量检索，画像管"人"一份摘要直接注入，不同访问模式不同方案 |
 | 上下文 | 滑动窗口 5 轮原文 + 增量摘要 | 近期细节 + 远期脉络兼顾，token 预算可控 |
 | Prompt 管理 | 任务类集中(YAML)，Skill/MCP 就近 | 判断标准：改 Prompt 要否同步改代码 → 决定集中或嵌入 |
+| 限流 | 三层漏斗（并发+分钟滑动窗口+天滑动窗口） | 每层保护不同维度：并发防状态覆盖，分钟防脚本攻击，天防长期挂机 |
+| 提示词安全 | 输入过滤 + Prompt 加固 + 输出检测 | 纵深防御，聊天应用低风险场景输出端仅告警不截断 |
 | Embedding | BGE-large-zh 本地 | 中文 SOTA，零 API 成本，和 Cross-Encoder 同家族 |
 | 向量库 | ChromaDB (论语) + SQLite JSON (记忆) | 数据量决定索引策略：512 条用 HNSW，<50 条 Python 循环 |
 | 数据库 | SQLite → 可迁移 PG | SQLAlchemy ORM 全表统一，切换数据库仅改连接串 |
